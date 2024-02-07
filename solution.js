@@ -7,6 +7,9 @@ import { Strategy } from "passport-local";
 import GoogleStrategy from "passport-google-oauth2";
 import session from "express-session";
 import env from "dotenv";
+import { URL } from "url";
+
+const __dirname = new URL(".", import.meta.url).pathname;
 
 const app = express();
 const port = 3000;
@@ -21,7 +24,9 @@ app.use(
   })
 );
 app.use(bodyParser.urlencoded({ extended: true }));
-app.use(express.static("public"));
+app.use(express.static(__dirname + "/public"));
+app.set("views", __dirname + "/views");
+app.set("view engine", "ejs");
 
 app.use(passport.initialize());
 app.use(passport.session());
