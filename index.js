@@ -1,6 +1,7 @@
 import express from "express";
 import bodyParser from "body-parser";
 import pg from "pg";
+import mongoose from "mongoose";
 import bcrypt from "bcrypt";
 import passport from "passport";
 import { Strategy } from "passport-local";
@@ -24,19 +25,42 @@ app.use(
   })
 );
 app.use(bodyParser.urlencoded({ extended: true }));
+// app.use(express.static("public"));
 app.use(express.static("public"));
+app.set("views", "views");
+app.set("view engine", "ejs");
 
 app.use(passport.initialize());
 app.use(passport.session());
 
-const db = new pg.Client({
-  user: process.env.PG_USER,
-  host: process.env.PG_HOST,
-  database: process.env.PG_DATABASE,
-  password: process.env.PG_PASSWORD,
-  port: process.env.PG_PORT,
+// const db = new pg.Client({
+//   user: process.env.PG_USER,
+//   host: process.env.PG_HOST,
+//   database: process.env.PG_DATABASE,
+//   password: process.env.PG_PASSWORD,
+//   port: process.env.PG_PORT,
+// });
+// db.connect();
+const url = process.env.MONGO_URL;
+mongoose
+  .connect(url, { useNewUrlParser: true })
+  .then(() => {
+    console.log("connected to db");
+  })
+  .catch((err) => {
+    console.log(`error connected to db ${err}`);
+  });
+const userSchema = new mongoose.Schema({
+  email: String,
+  password: String,
+  secrets: [
+    {
+      secret: String,
+    },
+  ],
 });
-db.connect();
+
+const User = new mongoose.model("User", userSchema);
 
 app.get("/", (req, res) => {
   res.render("home.ejs");
@@ -60,22 +84,27 @@ app.get("/logout", (req, res) => {
 });
 
 app.get("/secrets", async (req, res) => {
-  console.log(req.user);
+  console.log("/secrets get");
+  //console.log(req.user);
 
   ////////////////UPDATED GET SECRETS ROUTE/////////////////
   if (req.isAuthenticated()) {
     try {
-      const result = await db.query(
-        `SELECT secret FROM people WHERE email = $1`,
-        [req.user.email]
-      );
-      console.log(result);
-      const secret = result.rows[0].secret;
+      const foundUsers = await User.find({
+        secrets: { $exists: true, $not: { $size: 0 } },
+      });
+      // console.log("secrets");
+      // console.log(foundUsers);
 
-      if (secret) {
-        res.render("secrets.ejs", { secret: secret });
+      //console.log(result);
+      //  const secret = result.rows[0].secret;
+      //   console.log(secret);
+      if (foundUsers.length != 0) {
+        res.render("secrets.ejs", { usersWithSecrets: foundUsers });
       } else {
-        res.render("secrets.ejs", { secret: "Jack Bauer is my hero." });
+        res.render("secrets.ejs", {
+          usersWithSecrets: ["Jack Bauer is my hero."],
+        });
       }
     } catch (err) {
       console.log(err);
@@ -122,25 +151,23 @@ app.post("/register", async (req, res) => {
   const password = req.body.password;
 
   try {
-    const checkResult = await db.query(
-      "SELECT * FROM people WHERE email = $1",
-      [email]
-    );
+    const checkResult = await User.findOne({ email: email }).exec();
 
-    if (checkResult.rows.length > 0) {
+    if (checkResult) {
       req.redirect("/login");
     } else {
       bcrypt.hash(password, saltRounds, async (err, hash) => {
         if (err) {
           console.error("Error hashing password:", err);
         } else {
-          const result = await db.query(
-            "INSERT INTO people (email, password) VALUES ($1, $2) RETURNING *",
-            [email, hash]
-          );
-          const user = result.rows[0];
-
-          req.login(user, (err) => {
+          // const result = await db.query(
+          //   "INSERT INTO people (email, password) VALUES ($1, $2) RETURNING *",
+          //   [email, hash]
+          // );
+          const result = await User.create({ email: email, password: hash });
+          //const user = result.rows[0];
+          console.log(result);
+          req.login(result, (err) => {
             console.log("success");
             res.redirect("/secrets");
           });
@@ -154,14 +181,22 @@ app.post("/register", async (req, res) => {
 
 ////////////////SUBMIT POST ROUTE/////////////////
 app.post("/submit", async function (req, res) {
+  console.log("post /submit");
   const submittedSecret = req.body.secret;
   console.log(req.user);
+  const cus = {
+    secret: submittedSecret,
+  };
   try {
-    await db.query(`UPDATE people SET secret = $1 WHERE email = $2`, [
-      submittedSecret,
-      req.user.email,
-    ]);
+    // await db.query(`UPDATE people SET secret = $1 WHERE email = $2`, [
+    //   submittedSecret,
+    //   req.user.email,
+    // ]);
+    const foundUser = await User.findById(req.user._id);
 
+    console.log(foundUser);
+    foundUser.secrets.push(cus);
+    foundUser.save();
     res.redirect("/secrets");
   } catch (err) {
     console.log(err);
@@ -172,20 +207,21 @@ passport.use(
   "local",
   new Strategy(async function verify(username, password, cb) {
     try {
-      const result = await db.query("SELECT * FROM people WHERE email = $1 ", [
-        username,
-      ]);
-
-      if (result.rows.length > 0) {
-        const user = result.rows[0];
-        const storedHashedPassword = user.password;
+      // const result = await db.query("SELECT * FROM people WHERE email = $1 ", [
+      //   username,
+      // ]);
+      const result = await User.findOne({ email: username }).exec();
+      console.log(result);
+      if (result) {
+        //const user = result.rows[0];
+        const storedHashedPassword = result.password;
         bcrypt.compare(password, storedHashedPassword, (err, valid) => {
           if (err) {
             console.error("Error comparing passwords:", err);
             return cb(err);
           } else {
             if (valid) {
-              return cb(null, user);
+              return cb(null, result);
             } else {
               return cb(null, false);
             }
