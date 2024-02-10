@@ -12,7 +12,7 @@ import { URL } from "url";
 
 const __dirname = new URL(".", import.meta.url).pathname;
 
-const app = express();
+//const app = express();
 const port = 3000;
 const saltRounds = 10;
 env.config();
