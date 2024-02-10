@@ -25,9 +25,13 @@ app.use(
   })
 );
 app.use(bodyParser.urlencoded({ extended: true }));
+
 // app.use(express.static("public"));
-app.use(express.static(__dirname + "/public"));
-app.set("views", __dirname + "/views");
+// app.set("views", "views");
+// app.set("view engine", "ejs");
+
+app.use(express.static(__dirname + "public"));
+app.set("views", __dirname + "views");
 app.set("view engine", "ejs");
 
 app.use(passport.initialize());
@@ -62,30 +66,29 @@ const userSchema = new mongoose.Schema({
 
 const User = new mongoose.model("User", userSchema);
 
-app.get("/account", async function (req, res) {
-  //console.log("submit user " + req.user);
-  //console.log(req);
-  console.log("/submit get");
-  if (req.isAuthenticated()) {
-    const user = await User.findById(req.user._id);
-
-    res.render("account", { user: user, wrong: "" });
-  } else {
-    res.redirect("/login");
-  }
-});
-app.get("/", (req, res) => {
+/* app gets request */
+app.get("/", function (req, res) {
   res.render("home.ejs");
 });
 
+app.get("/duplicate", function (req, res) {
+  res.render("duplicate");
+});
+
+app.get("/register", function (req, res) {
+  res.render("register", { user: "" });
+});
+app.get("/forget", function (req, res) {
+  res.render("forget", { user: "" });
+});
 app.get("/login", (req, res) => {
-  res.render("login.ejs");
+  res.render("login", { user: "" });
 });
+app.get("/login/:message", (req, res) => {
+  const par = req.params.message;
 
-app.get("/register", (req, res) => {
-  res.render("register.ejs");
+  res.render("login", { user: par });
 });
-
 app.get("/logout", (req, res) => {
   req.logout(function (err) {
     if (err) {
@@ -94,9 +97,8 @@ app.get("/logout", (req, res) => {
     res.redirect("/");
   });
 });
-
 app.get("/secrets", async (req, res) => {
-  console.log("/secrets get");
+  //console.log("/secrets get");
   //console.log(req.user);
 
   ////////////////UPDATED GET SECRETS ROUTE/////////////////
@@ -125,48 +127,57 @@ app.get("/secrets", async (req, res) => {
     res.redirect("/login");
   }
 });
-
-////////////////SUBMIT GET ROUTE/////////////////
-app.get("/submit", function (req, res) {
+//see account
+app.get("/account", async function (req, res) {
+  //console.log("submit user " + req.user);
+  //console.log(req);
+  console.log("/submit get");
   if (req.isAuthenticated()) {
-    res.render("submit.ejs");
+    const user = await User.findById(req.user._id);
+
+    res.render("account", { user: user, wrong: "" });
   } else {
     res.redirect("/login");
   }
 });
-
-app.get(
-  "/auth/google",
-  passport.authenticate("google", {
-    scope: ["profile", "email"],
-  })
-);
-
-app.get(
-  "/auth/google/secrets",
-  passport.authenticate("google", {
-    successRedirect: "/secrets",
-    failureRedirect: "/login",
-  })
-);
+// ** post request ** //
 
 app.post(
   "/login",
   passport.authenticate("local", {
     successRedirect: "/secrets",
-    failureRedirect: "/login",
+    failureRedirect: "/login/wrong",
   })
 );
+app.post("/logi", function (req, res, next) {
+  passport.authenticate("local", async function (err, user, info) {
+    console.log("all" + err, user, info);
+    if (err) {
+      if (err === "wrong password") {
+        return res.render("login", { user: "wrong" });
+      } else {
+        return res.render("login", { user: "email" });
+      }
+    }
+    req.logIn(user, function (err) {
+      if (err) {
+        return next(err);
+      }
+      //console.log(user);
 
+      return res.redirect("/secrets");
+    });
+  })(req, res, next);
+});
 app.post("/register", async (req, res) => {
   const email = req.body.username;
   const password = req.body.password;
 
   try {
     const checkResult = await User.findOne({ email: email }).exec();
-
+    console.log(checkResult);
     if (checkResult) {
-      req.redirect("/login");
+      res.render("login", { user: "already registered" });
     } else {
       bcrypt.hash(password, saltRounds, async (err, hash) => {
         if (err) {
@@ -187,11 +198,25 @@ app.post("/register", async (req, res) => {
       });
     }
   } catch (err) {
+    res.render("register", { user: "registered" });
     console.log(err);
   }
 });
-
-////////////////SUBMIT POST ROUTE/////////////////
+//edit a secret
+app.post("/edit", async function (req, res) {
+  const editVal = req.body.secret;
+  const delId = req.body.hisId;
+  const secretId = req.body.del;
+  //console.log(editVal);
+  const a = await User.findOneAndUpdate(
+    { _id: delId, "secrets._id": secretId },
+    {
+      $set: { "secrets.$.secret": editVal },
+    }
+  );
+  //console.log(a);
+  res.redirect("/secrets");
+});
 app.post("/submit", async function (req, res) {
   console.log("post /submit");
   const submittedSecret = req.body.secret;
@@ -211,8 +236,112 @@ app.post("/submit", async function (req, res) {
     foundUser.save();
     res.redirect("/secrets");
   } catch (err) {
+    res.redirect("/login");
     console.log(err);
   }
+});
+// change password
+app.post("/changePassword", function (req, res) {
+  //console.log("change password" + req.body);
+  // console.log("change password user" + req.user);
+  //console.log(req.user);
+  req.user.changePassword(req.body.current, req.body.new, function (err) {
+    if (err) {
+      //res.redirect("/submit");
+      res.render("account", { user: req.user, wrong: "wrong pass" });
+    } else {
+      res.render("login", { user: "change pass" });
+    }
+  });
+});
+// forget password
+app.post("/forget", async function (req, res) {
+  //console.log("change password" + req.body);
+  // console.log("change password user" + req.user);
+  // const email = await User.findOne({ username: req.body.username });
+  // if (email) {
+  //   email.setPassword(req.body.password, function (err, user) {
+  //     if (err) {
+  //       console.log(err);
+  //     } else {
+  //       console.log(user);
+  //       // res.redirect("/login");
+  //     }
+  //   });
+  // } else {
+  //   res.render("forget", { user: "not found" });
+  // }
+
+  User.findOne({ username: req.body.username }).then(
+    function (sanitizedUser) {
+      if (sanitizedUser) {
+        sanitizedUser.setPassword(req.body.password, function () {
+          sanitizedUser.save();
+          res.render("login", { user: "forget success" });
+        });
+      } else {
+        res.render("forget", { user: "not found" });
+        //es.status(500).json({ message: "This user does not exist" });
+      }
+    },
+    function (err) {
+      console.error(err);
+    }
+  );
+});
+
+app.post("/setPassword", async function (req, res) {
+  //console.log(req.body);
+  User.findOne({ username: req.body.username }).then(
+    function (sanitizedUser) {
+      if (sanitizedUser) {
+        sanitizedUser.setPassword(req.body.password, function () {
+          sanitizedUser.save();
+          res.render("login", { user: "set success" });
+        });
+      } else {
+        res.status(500).json({ message: "Something goes wrong" });
+      }
+    },
+    function (err) {
+      console.error(err);
+    }
+  );
+});
+// delete a secret
+app.post("/delete", function (req, res) {
+  const delId = req.body.hisId;
+  const secretId = req.body.del;
+  //console.log("deleted secret "+delId, secretId);
+  User.updateOne({ _id: delId }, { $pull: { secrets: { _id: secretId } } })
+    .then(() => {
+      res.redirect("/account");
+    })
+    .catch((err) => {
+      console.log(`error connected to db ${err}`);
+    });
+});
+
+//delete account
+app.post("/deleteAccount", async function (req, res) {
+  //console.log("delete user info " + req.user);
+  try {
+    await User.findByIdAndDelete(req.user._id);
+    res.redirect("/register");
+  } catch (error) {
+    console.log(error.message);
+  }
+});
+app.listen(port, () => {
+  console.log(`Server running on port ${port}`);
+});
+
+passport.serializeUser((user, cb) => {
+  cb(null, user);
+});
+
+passport.deserializeUser((user, cb) => {
+  cb(null, user);
 });
 
 passport.use(
@@ -223,7 +352,7 @@ passport.use(
       //   username,
       // ]);
       const result = await User.findOne({ email: username }).exec();
-      console.log(result);
+      //console.log(result);
       if (result) {
         //const user = result.rows[0];
         const storedHashedPassword = result.password;
@@ -233,18 +362,32 @@ passport.use(
             return cb(err);
           } else {
             if (valid) {
-              return cb(null, result);
+              return cb(false, result);
             } else {
-              return cb(null, false);
+              return cb("wrong password", false);
             }
           }
         });
       } else {
-        return cb("User not found");
+        //console.log("User not found");
+        return cb("User not found", false);
       }
     } catch (err) {
-      console.log(err);
+      //console.log(err);
     }
+  })
+);
+
+app.get(
+  "/auth/google",
+  passport.authenticate("google", { scope: ["profile", "email"] })
+);
+
+app.get(
+  "/auth/google/secrets",
+  passport.authenticate("google", {
+    successRedirect: "/secrets",
+    failureRedirect: "/login",
   })
 );
 
@@ -258,18 +401,21 @@ passport.use(
       userProfileURL: "https://www.googleapis.com/oauth2/v3/userinfo",
     },
     async (accessToken, refreshToken, profile, cb) => {
+      const info = profile._json;
       try {
-        const result = await db.query("SELECT * FROM people WHERE email = $1", [
-          profile.email,
-        ]);
-        if (result.rows.length === 0) {
-          const newUser = await db.query(
-            "INSERT INTO people (email, password) VALUES ($1, $2)",
-            [profile.email, "google"]
-          );
-          return cb(null, newUser.rows[0]);
+        const result = await User.findOne({ email: info.email }).exec();
+
+        if (!result) {
+          const newUser = await User.create({
+            email: profile.email,
+            password: "google",
+          });
+          //const user = result.rows[0];
+          console.log(newUser);
+
+          return cb(null, newUser);
         } else {
-          return cb(null, result.rows[0]);
+          return cb(null, result);
         }
       } catch (err) {
         return cb(err);
@@ -277,14 +423,3 @@ passport.use(
     }
   )
 );
-passport.serializeUser((user, cb) => {
-  cb(null, user);
-});
-
-passport.deserializeUser((user, cb) => {
-  cb(null, user);
-});
-
-app.listen(port, () => {
-  console.log(`Server running on port ${port}`);
-});
