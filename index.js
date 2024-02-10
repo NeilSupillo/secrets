@@ -25,10 +25,10 @@ app.use(
   })
 );
 app.use(bodyParser.urlencoded({ extended: true }));
-// app.use(express.static("public"));
-app.use(express.static(__dirname + "public"));
-app.set("views", __dirname + "views");
-app.set("view engine", "ejs");
+app.use(express.static("public"));
+// app.use(express.static(__dirname + "public"));
+// app.set("views", __dirname + "views");
+// app.set("view engine", "ejs");
 
 app.use(passport.initialize());
 app.use(passport.session());
@@ -46,6 +46,9 @@ mongoose
   .connect(url, { useNewUrlParser: true })
   .then(() => {
     console.log("connected to db");
+    app.listen(port, () => {
+      console.log(`Server running on port ${port}`);
+    });
   })
   .catch((err) => {
     console.log(`error connected to db ${err}`);
@@ -115,9 +118,14 @@ app.get("/secrets", async (req, res) => {
 });
 
 ////////////////SUBMIT GET ROUTE/////////////////
-app.get("/submit", function (req, res) {
+app.get("/account", async function (req, res) {
+  //console.log("submit user " + req.user);
+  //console.log(req);
+  console.log("/submit get");
   if (req.isAuthenticated()) {
-    res.render("submit.ejs");
+    const user = await User.findById(req.user._id);
+
+    res.render("account", { user: user, wrong: "" });
   } else {
     res.redirect("/login");
   }
@@ -175,6 +183,7 @@ app.post("/register", async (req, res) => {
       });
     }
   } catch (err) {
+    res.render("/register");
     console.log(err);
   }
 });
@@ -247,17 +256,19 @@ passport.use(
     },
     async (accessToken, refreshToken, profile, cb) => {
       try {
-        const result = await db.query("SELECT * FROM people WHERE email = $1", [
-          profile.email,
-        ]);
-        if (result.rows.length === 0) {
-          const newUser = await db.query(
-            "INSERT INTO people (email, password) VALUES ($1, $2)",
-            [profile.email, "google"]
-          );
-          return cb(null, newUser.rows[0]);
+        const result = await User.findOne({ email: email }).exec();
+
+        if (!result) {
+          const newUser = await User.create({
+            email: profile.email,
+            password: "google",
+          });
+          //const user = result.rows[0];
+          console.log(newUser);
+
+          return cb(null, newUser);
         } else {
-          return cb(null, result.rows[0]);
+          return cb(null, newUser);
         }
       } catch (err) {
         return cb(err);
@@ -271,8 +282,4 @@ passport.serializeUser((user, cb) => {
 
 passport.deserializeUser((user, cb) => {
   cb(null, user);
-});
-
-app.listen(port, () => {
-  console.log(`Server running on port ${port}`);
 });

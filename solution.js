@@ -62,6 +62,18 @@ const userSchema = new mongoose.Schema({
 
 const User = new mongoose.model("User", userSchema);
 
+app.get("/account", async function (req, res) {
+  //console.log("submit user " + req.user);
+  //console.log(req);
+  console.log("/submit get");
+  if (req.isAuthenticated()) {
+    const user = await User.findById(req.user._id);
+
+    res.render("account", { user: user, wrong: "" });
+  } else {
+    res.redirect("/login");
+  }
+});
 app.get("/", (req, res) => {
   res.render("home.ejs");
 });
